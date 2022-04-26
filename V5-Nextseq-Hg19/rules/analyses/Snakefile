@@ -1,0 +1,95 @@
+rule biom_gatkbackground:
+    # Realign the the reads
+    input:
+        "{prefix}%s%s/{sample}.{program}{isrelax}.snp_indel.vcf" % (config['dirs']['intermediate'], config['stepnames']['gatk_CombineVariants'])
+    output:
+        "{prefix}%s%s/{sample}.{program,gatk}{isrelax,\.relax|}.snp_indel.biom" % (config['dirs']['intermediate'], config['stepnames']['biom_gatkbackground'])
+    log:
+        "{prefix}%s%s/{sample}.{program}{isrelax}.log" % (config['dirs']['logs'], config['stepnames']['biom_gatkbackground'])
+    benchmark:
+        "{prefix}%s%s/{sample}.{program}{isrelax}.benchmark" % (config['dirs']['benchmarks'], config['stepnames']['biom_gatkbackground'])
+    threads:
+        1
+    run:
+        sample_to_biom(input[0], output[0], wildcards.sample)
+
+
+rule biom_merge:
+    input:
+        lambda wildcards: ["%s%s%s/%s.gatk.snp_indel.biom" % (wildcards.prefix, config['dirs']['intermediate'], config['stepnames']['biom_gatkbackground'], sample['sample'])
+                           for sample in get_samples(SAMPLESHEETS, config)
+                           if sample['Sample_Project'] == wildcards.project]
+    output:
+        "{prefix}%s%s/{project}.biom" % (config['dirs']['intermediate'], config['stepnames']['biom_merged'])
+    log:
+        "{prefix}%s%s/{project}.log" % (config['dirs']['logs'], config['stepnames']['biom_merged'])
+    benchmark:
+        "{prefix}%s%s/{project}.benchmark" % (config['dirs']['benchmarks'], config['stepnames']['biom_merged'])
+    threads:
+        1
+    run:
+        merge_samples(input, output[0], wildcards.project)
+
+
+rule install_bamstat:
+    output:
+        "{prefix}%sbamstat04.jar" % (config['dirs']['references'])
+    conda:
+        "envs/spike_bamstats.yaml"
+    log:
+        "{prefix}%sinstall_bamstat.log" % (config['dirs']['logs'])
+    benchmark:
+        "{prefix}%sinstall_bamstat.log" % (config['dirs']['benchmarks'])
+    threads:
+        1
+    shell:
+        'workdir=`mktemp -d` > {log} 2>&1'
+        ' && echo "workdir is $workdir" >> {log}'
+        ' && cd $workdir >> {log} 2>&1'
+        ' && git clone "https://github.com/lindenb/jvarkit.git" >> {log} 2>&1'
+        ' && cd jvarkit 2>> {log}'
+        #' && make bamstats04 standalone=yes >> {log} 2>&1'
+        ' && ./gradlew bamstats04 >> {log} 2>&1'#new makefile
+        ' && cp -v dist/bamstats04.jar {output} >> {log} 2>&1'
+        ' && cd 2>> {log}'
+        ' && rm -rfv $workdir >> {log} 2>&1'
+
+
+rule bamstat:
+    input:
+        bam="{prefix}%s%s/{sample}.reCal.reAl.nodup.srt.bam" % (config['dirs']['intermediate'], config['stepnames']['gatk_PrintReads']),
+        exometrack=lambda wildcards: "%s%s%s" % (config['dirs']['prefix'], config['dirs']['references'], get_reference_exometrack(wildcards.sample, SAMPLESHEETS, config)),
+        bin_bamstat="{prefix}%sbamstat04.jar" % (config['dirs']['references']),
+    output:
+        "{prefix}%s%s/{sample}.bamstat.tsv" % (config['dirs']['intermediate'], config['stepnames']['bamstat'])
+    conda:
+        "envs/spike_bamstats.yaml"
+    log:
+        "{prefix}%s%s/{sample}.log" % (config['dirs']['logs'], config['stepnames']['bamstat'])
+    benchmark:
+        "{prefix}%s%s/{sample}.benchmark" % (config['dirs']['benchmarks'], config['stepnames']['bamstat'])
+    threads:
+        1
+    shell:
+        "h=`mktemp`"
+        ' && echo "tempfile is $h" > {log} 2>&1'
+        " && java -jar {input.bin_bamstat} -B {input.exometrack} {input.bam} 2>> {log} > $h"
+        " && column -t $h > {output} 2>> {log}"
+        " && rm -f $h 2>>{log}"
+
+
+rule genepanel_coverage:
+    input:
+        agilent=lambda wildcards: '%s%s%s' % (wildcards.prefix, config['dirs']['references'], get_reference_exometrack(wildcards.sample, SAMPLESHEETS, config, returnfield="agilent_coverage_file")),
+        panelconfig="{prefix}%s%s{panel}.yaml" % (config['dirs']['inputs'], config['dirs']['genepanels']),
+        bamstat="{prefix}%s%s/{sample}.bamstat.tsv" % (config['dirs']['intermediate'], config['stepnames']['bamstat'])
+    output:
+        "{prefix}%s%s/{panel}.yaml/{sample}.tsv" % (config['dirs']['intermediate'], config['stepnames']['genepanel_coverage'])
+    log:
+        "{prefix}%s%s/{panel}.yaml/{sample}.log" % (config['dirs']['logs'], config['stepnames']['genepanel_coverage'])
+    benchmark:
+        "{prefix}%s%s/{panel}.yaml/{sample}.benchmark" % (config['dirs']['benchmarks'], config['stepnames']['genepanel_coverage'])
+    threads:
+        1
+    run:
+        get_gene_panel_coverage(input.panelconfig, input.bamstat, input.agilent, output[0])

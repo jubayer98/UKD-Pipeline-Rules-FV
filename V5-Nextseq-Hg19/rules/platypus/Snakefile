@@ -1,0 +1,59 @@
+rule platypus:
+    input:
+        bam=rules.gatk_PrintReads.output.bam,
+        bai=rules.gatk_PrintReads.output.bai,
+        exometrack=lambda wildcards: "%s%s%s" % (config['dirs']['prefix'], config['dirs']['references'], get_reference_exometrack(wildcards.sample, SAMPLESHEETS, config)),
+        references=lambda wildcards: ["%s%s%s%s" % (wildcards.prefix, config['dirs']['references'], get_reference_genome(wildcards.sample, SAMPLESHEETS, config)['file'], ending) for ending in config['endings_bwa']],
+    output:
+        vcf="{prefix}%s%s/{sample}.ptp.raw_calls.vcf" % (config['dirs']['intermediate'], config['stepnames']['gatk_HaplotypeCaller']),
+        #idx="{prefix}%s%s/{sample}.ptp.raw_calls.vcf.idx" % (config['dirs']['intermediate'], config['stepnames']['gatk_HaplotypeCaller'])
+    log:
+        "{prefix}%s%s/ptp/{sample}.log" % (config['dirs']['logs'], config['stepnames']['gatk_HaplotypeCaller'])
+    benchmark:
+        "{prefix}%s%s/ptp/{sample}.benchmark" % (config['dirs']['benchmarks'], config['stepnames']['gatk_HaplotypeCaller'])
+    conda:
+        "envs/spike_platypus.yaml"
+    threads:
+        3
+    params:
+        regions=lambda wildcards, input: " --regions=%s" % input.exometrack if get_species(wildcards.sample, SAMPLESHEETS, config) == 'homo sapiens' else ""
+    shell:
+        "python2"
+        " $CONDA_PREFIX/share/platypus-variant-0.8.1*/Platypus.py"
+        " callVariants"
+        "{params.regions}"
+        " --refFile={input.references[0]}"
+        " --bamFiles={input.bam}"
+        " --nCPU {threads}"
+        " --output {output.vcf}"
+        " 2> {log}"
+
+        # " mv -v {output.vcf}.tmp {output.vcf} 2>> {log}"
+
+        # #now for the new 2015 magic with platypus
+        # #and ultimately, Platypus
+        # %.ptp.raw.vcf: %.reCal.reAl.nodup.srt.bam %.reCal.reAl.nodup.srt.bam.bai
+        # 	@echo "$(DATE) ######### Perform variant call with platypus '$<'. #########"
+        # 	python2 $(PLATYPUS_PATH_2k15)/Platypus.py callVariants --regions=$(EXOME_TRACK) --refFile=$(REF) --bamFiles=$< --nCPU $(NUM_THREADS) --output=$@.tmp \
+        # 	&& mv $@.tmp $@
+        # 	-mv $@.tmp.idx $@.idx
+
+rule platypus_filtered:
+    input:
+        vcf="{prefix}%s%s/{sample}.ptp.filtered.indels.vcf" % (config['dirs']['intermediate'], config['stepnames']['gatk_VariantFiltration']),
+    output:
+        vcf="{prefix}%s%s/{sample}.ptp.annotated.filtered.indels.vcf" % (config['dirs']['intermediate'], config['stepnames']['platypus_filtered']),
+        #idx="{prefix}%s%s/{sample}.ptp.annotated.filtered.indels.vcf.idx" % (config['dirs']['intermediate'], config['stepnames']['platypus_filtered']),
+    log:
+        "{prefix}%s%s/{sample}.log" % (config['dirs']['logs'], config['stepnames']['platypus_filtered'])
+    benchmark:
+        "{prefix}%s%s/{sample}.benchmark" % (config['dirs']['benchmarks'], config['stepnames']['platypus_filtered'])
+    threads:
+        1
+    run:
+        annotate(input.vcf, output.vcf)
+
+        # %.ptp.annotated.filtered.indels.vcf: %.ptp.filtered.indels.vcf
+        # 	@echo "$(DATE) ######### Do a hard filtering of the indels in '$<'. #########"
+        # 	cat $< |vcf-mapper -a map -f "FORMAT:NR[0]" -t "FORMAT:DP" | vcf-mapper -a map -f "FORMAT:NR" -t "FORMAT:AD[0]" | vcf-mapper -a map -f "FORMAT:NV" -t "FORMAT:AD[1]" | vcf-mapper -a transform -f "FORMAT:AD[0]" -c "substract" -p "#{FORMAT:NV[0]}" -o $@.tmp\
+        # 	&& mv $@.tmp $@

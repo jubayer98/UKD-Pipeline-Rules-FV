@@ -1,0 +1,7 @@
+channels:
+  - bioconda
+dependencies:
+  - vcftools =0.1.15
+  - perl-vcftools-vcf =0.1.15
+  - ruby =2.5.1
+  - tabix =0.2.5

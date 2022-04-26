@@ -1,0 +1,8 @@
+name: spike_platypus
+
+channels:
+  - bioconda
+dependencies:
+  - platypus-variant =0.8.1
+  - vcftools =0.1.15
+  - ruby =2.5.1

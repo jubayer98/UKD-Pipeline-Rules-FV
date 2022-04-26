@@ -1,0 +1,5 @@
+name: spike_peddy
+channels:
+  - bioconda
+dependencies:
+  - peddy =0.4.8

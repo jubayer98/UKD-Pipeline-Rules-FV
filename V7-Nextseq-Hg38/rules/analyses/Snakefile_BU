@@ -1,0 +1,21 @@
+rule bamstat:
+    input:
+        bam= "{prefix}%s%s/{sample}.new.Hg38.nodup.srt.bam" % (config['dirs']['intermediate'], config['stepnames']['nodup']),
+	exometrack=lambda wildcards: "%s%s%s" % (config['dirs']['prefix'], config['dirs']['references'], get_reference_exometrack(wildcards.sample, SAMPLESHEETS, config)),
+	bin_bamstat="{prefix}%sbamstat04.jar" % (config['dirs']['references']),
+    output:
+        "{prefix}%s%s/{sample}.Hg38.PCR.bamstat.tsv" % (config['dirs']['intermediate'], config['stepnames']['bamstat'])
+    conda:
+        "envs/spike_bamstats.yaml"
+    log:
+        "{prefix}%s%s/{sample}.log" % (config['dirs']['logs'], config['stepnames']['bamstat'])
+    benchmark:
+        "{prefix}%s%s/{sample}.benchmark" % (config['dirs']['benchmarks'], config['stepnames']['bamstat'])
+    threads:
+        1
+    shell:
+        "h=`mktemp`"
+        ' && echo "tempfile is $h" > {log} 2>&1'
+        " && java -jar {input.bin_bamstat} -B {input.exometrack} {input.bam} 2>> {log} > $h"
+        " && column -t $h > {output} 2>> {log}"
+        " && rm -f $h 2>>{log}"
